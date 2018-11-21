@@ -2,7 +2,7 @@ package plugin
 
 import "code.cloudfoundry.org/cli/plugin"
 
-func (p CPUEntitlementPlugin) GetMetadata() plugin.PluginMetadata {
+func (p *CPUEntitlementPlugin) GetMetadata() plugin.PluginMetadata {
 	return plugin.PluginMetadata{
 		Name: "CpuEntitlementPlugin",
 		Version: plugin.VersionType{

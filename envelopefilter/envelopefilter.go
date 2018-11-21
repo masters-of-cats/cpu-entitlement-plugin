@@ -9,10 +9,11 @@ func Filter(in <-chan *events.Envelope, out chan<- *events.Envelope, filters ...
 	for {
 		envelope := <-in
 		for _, filter := range filters {
-			if filter(envelope) {
-				out <- envelope
+			if !filter(envelope) {
+				continue
 			}
 		}
+		out <- envelope
 	}
 }
 

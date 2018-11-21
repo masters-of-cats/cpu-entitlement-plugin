@@ -66,6 +66,10 @@ func Aggregate(metrics <-chan CPUMetric, outputs chan<- float64) {
 	)
 
 	for metric := range metrics {
+		if metric.Type == Empty {
+			continue
+		}
+
 		values[metric.Type] = metric.Value
 		if metric.Timestamp == timestamp {
 			outputs <- values[Usage] / values[Entitlement]
