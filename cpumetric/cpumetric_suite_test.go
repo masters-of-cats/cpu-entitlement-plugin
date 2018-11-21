@@ -1,4 +1,4 @@
-package main_test
+package cpumetric_test
 
 import (
 	"testing"
@@ -10,4 +10,16 @@ import (
 func TestCpuEntitlementPlugin(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "CpuEntitlementPlugin Suite")
+}
+
+func int64ptr(i int64) *int64 {
+	return &i
+}
+
+func stringptr(s string) *string {
+	return &s
+}
+
+func float64ptr(f float64) *float64 {
+	return &f
 }

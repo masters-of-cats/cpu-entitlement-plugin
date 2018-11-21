@@ -10,6 +10,7 @@ import (
 	"code.cloudfoundry.org/cli/plugin/models"
 	"github.com/cloudfoundry/noaa/consumer"
 	"github.com/cloudfoundry/sonde-go/events"
+	"github.com/masters-of-cats/cpu-entitlement-plugin/cpumetric"
 )
 
 type CpuEntitlementPlugin struct{}
@@ -55,25 +56,23 @@ func (p *CpuEntitlementPlugin) Run(cliConnection plugin.CliConnection, args []st
 
 	ui.Say("Hit Ctrl+c to exit")
 
-	inputs := make(chan CpuMetric)
+	inputs := make(chan cpumetric.CpuMetric)
+	defer close(inputs)
 	go func() {
 		for envelope := range envelopes {
-			if isFromApp(envelope, app) && isValueMetric(envelope) {
-				cpuMetric := CpuMetric{Name: *envelope.ValueMetric.Name,
-					Value:     *envelope.ValueMetric.Value,
-					Timestamp: *envelope.Timestamp,
-				}
-
-				inputs <- cpuMetric
-				// convert to cpumetric
-				// add to input chan
+			metric := cpumetric.FromEnvelope(envelope)
+			if metric.Type == cpumetric.Empty {
+				continue
 			}
+
+			inputs <- metric
 		}
 	}()
 
-	outputs := Calculate(inputs)
+	outputs := make(chan float64, 1)
+	go cpumetric.Aggregate(inputs, outputs)
 	for metric := range outputs {
-		ui.Say("%v \n", metric)
+		ui.Say("%v%%", metric*100)
 	}
 	<-done
 }
@@ -105,32 +104,4 @@ func (p *CpuEntitlementPlugin) GetMetadata() plugin.PluginMetadata {
 			},
 		},
 	}
-}
-
-type CpuMetric struct {
-	Name      string
-	Value     float64
-	Timestamp int64
-}
-
-func Calculate(metrics chan CpuMetric) chan float64 {
-	var values = map[string]float64{}
-	var timestamp int64
-
-	var outputs = make(chan float64, 1)
-
-	go func() {
-		for {
-			metric := <-metrics
-			values[metric.Name] = metric.Value
-			if metric.Timestamp == timestamp {
-				outputs <- values["absolute_usage"] / values["absolute_entitlement"]
-			} else {
-				values = map[string]float64{metric.Name: metric.Value}
-				timestamp = metric.Timestamp
-			}
-		}
-	}()
-
-	return outputs
 }
