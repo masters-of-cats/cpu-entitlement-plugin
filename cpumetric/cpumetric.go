@@ -8,6 +8,7 @@ const (
 	Empty MetricType = iota
 	Usage
 	Entitlement
+	Age
 )
 
 func newMetricType(name string) MetricType {
@@ -16,55 +17,61 @@ func newMetricType(name string) MetricType {
 		return Usage
 	case "absolute_entitlement":
 		return Entitlement
+	case "container_age":
+		return Age
 	default:
 		return Empty
 	}
 }
 
-type CpuMetric struct {
+type CPUMetric struct {
 	Type      MetricType
-	Name      string
 	Value     float64
 	Timestamp int64
 }
 
-func FromEnvelope(envelope *events.Envelope) CpuMetric {
+func New(t MetricType, value float64, timestamp int64) CPUMetric {
+	return CPUMetric{Type: t, Value: value, Timestamp: timestamp}
+}
+
+func FromEnvelope(envelope *events.Envelope) CPUMetric {
 	if envelope.ValueMetric == nil {
-		return CpuMetric{}
+		return CPUMetric{}
 	}
 
 	if envelope.ValueMetric.Value == nil {
-		return CpuMetric{}
+		return CPUMetric{}
 	}
 
 	if envelope.Timestamp == nil {
-		return CpuMetric{}
+		return CPUMetric{}
 	}
 
 	if envelope.ValueMetric.Name == nil {
-		return CpuMetric{}
+		return CPUMetric{}
 	}
 
 	t := newMetricType(*envelope.ValueMetric.Name)
 	if t == Empty {
-		return CpuMetric{}
+		return CPUMetric{}
 	}
 
-	return CpuMetric{Type: t, Value: *envelope.ValueMetric.Value, Timestamp: *envelope.Timestamp}
+	return CPUMetric{Type: t, Value: *envelope.ValueMetric.Value, Timestamp: *envelope.Timestamp}
 }
 
-func Aggregate(metrics <-chan CpuMetric, outputs chan<- float64) {
+func Aggregate(metrics <-chan CPUMetric, outputs chan<- float64) {
 	var (
-		values    = map[string]float64{}
+		values    = make(map[MetricType]float64)
 		timestamp int64
 	)
 
 	for metric := range metrics {
-		values[metric.Name] = metric.Value
+		values[metric.Type] = metric.Value
 		if metric.Timestamp == timestamp {
-			outputs <- values["absolute_usage"] / values["absolute_entitlement"]
+			outputs <- values[Usage] / values[Entitlement]
 		} else {
-			values = map[string]float64{metric.Name: metric.Value}
+			values = make(map[MetricType]float64)
+			values[metric.Type] = metric.Value
 			timestamp = metric.Timestamp
 		}
 	}

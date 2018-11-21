@@ -25,7 +25,7 @@ func (p *CpuEntitlementPlugin) Run(cliConnection plugin.CliConnection, args []st
 
 	// TODO: some args checking
 	appName := args[1]
-	app, err := cliConnection.GetApp(appName)
+	_, err := cliConnection.GetApp(appName)
 	if err != nil {
 		ui.Failed(err.Error())
 	}
@@ -56,7 +56,7 @@ func (p *CpuEntitlementPlugin) Run(cliConnection plugin.CliConnection, args []st
 
 	ui.Say("Hit Ctrl+c to exit")
 
-	inputs := make(chan cpumetric.CpuMetric)
+	inputs := make(chan cpumetric.CPUMetric)
 	defer close(inputs)
 	go func() {
 		for envelope := range envelopes {
