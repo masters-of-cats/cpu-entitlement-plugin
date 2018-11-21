@@ -55,10 +55,25 @@ func (p *CpuEntitlementPlugin) Run(cliConnection plugin.CliConnection, args []st
 
 	ui.Say("Hit Ctrl+c to exit")
 
-	for envelope := range envelopes {
-		if isFromApp(envelope, app) && isValueMetric(envelope) {
-			ui.Say("%v \n", envelope)
+	inputs := make(chan CpuMetric)
+	go func() {
+		for envelope := range envelopes {
+			if isFromApp(envelope, app) && isValueMetric(envelope) {
+				cpuMetric := CpuMetric{Name: *envelope.ValueMetric.Name,
+					Value:     *envelope.ValueMetric.Value,
+					Timestamp: *envelope.Timestamp,
+				}
+
+				inputs <- cpuMetric
+				// convert to cpumetric
+				// add to input chan
+			}
 		}
+	}()
+
+	outputs := Calculate(inputs)
+	for metric := range outputs {
+		ui.Say("%v \n", metric)
 	}
 	<-done
 }
@@ -90,4 +105,32 @@ func (p *CpuEntitlementPlugin) GetMetadata() plugin.PluginMetadata {
 			},
 		},
 	}
+}
+
+type CpuMetric struct {
+	Name      string
+	Value     float64
+	Timestamp int64
+}
+
+func Calculate(metrics chan CpuMetric) chan float64 {
+	var values = map[string]float64{}
+	var timestamp int64
+
+	var outputs = make(chan float64, 1)
+
+	go func() {
+		for {
+			metric := <-metrics
+			values[metric.Name] = metric.Value
+			if metric.Timestamp == timestamp {
+				outputs <- values["absolute_usage"] / values["absolute_entitlement"]
+			} else {
+				values = map[string]float64{metric.Name: metric.Value}
+				timestamp = metric.Timestamp
+			}
+		}
+	}()
+
+	return outputs
 }
