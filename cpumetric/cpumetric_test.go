@@ -9,44 +9,43 @@ import (
 
 var _ = Describe("CalculateCpu", func() {
 	var (
-		inputs  chan cpumetric.CPUMetric
-		outputs chan float64
+		metrics chan cpumetric.CPUMetric
+		output  chan float64
 	)
 
 	BeforeEach(func() {
-		inputs = make(chan cpumetric.CPUMetric)
-		outputs = make(chan float64, 1)
-		go cpumetric.Aggregate(inputs, outputs)
+		metrics = make(chan cpumetric.CPUMetric)
+		output = make(chan float64, 1)
+		go cpumetric.Aggregate(metrics, output)
 	})
 
 	AfterEach(func() {
-		close(inputs)
+		close(metrics)
 	})
 
 	It("returns nothings if not enough data", func() {
-		inputs <- cpumetric.New(cpumetric.Usage, 1, 1)
-		Consistently(outputs).ShouldNot(Receive())
+		metrics <- cpumetric.New(cpumetric.Usage, 1, 1)
+		Consistently(output).ShouldNot(Receive())
 	})
 
 	It("returns a cpu percentage", func() {
-		inputs <- cpumetric.New(cpumetric.Age, 2323, 1)
-		inputs <- cpumetric.New(cpumetric.Usage, 1, 1)
-		inputs <- cpumetric.New(cpumetric.Entitlement, 2, 1)
+		metrics <- cpumetric.New(cpumetric.Usage, 1, 1)
+		metrics <- cpumetric.New(cpumetric.Entitlement, 2, 1)
 		var result float64
-		Eventually(outputs).Should(Receive(&result))
+		Eventually(output).Should(Receive(&result))
 		Expect(result).To(Equal(0.5))
 	})
 
 	It("handles dropped messages", func() {
-		inputs <- cpumetric.New(cpumetric.Usage, 2, 1)
-		inputs <- cpumetric.New(cpumetric.Entitlement, 3, 2)
-		inputs <- cpumetric.New(cpumetric.Usage, 3, 2)
+		metrics <- cpumetric.New(cpumetric.Usage, 2, 1)
+		metrics <- cpumetric.New(cpumetric.Entitlement, 3, 2)
+		metrics <- cpumetric.New(cpumetric.Usage, 3, 2)
 		var result float64
-		Eventually(outputs).Should(Receive(&result))
+		Eventually(output).Should(Receive(&result))
 		Expect(result).To(Equal(1.0))
 	})
 
-	FDescribe("CPUMetric", func() {
+	Describe("CPUMetric", func() {
 		Describe("FromEnvelope", func() {
 			var (
 				envelope *events.Envelope
