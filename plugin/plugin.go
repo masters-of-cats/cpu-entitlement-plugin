@@ -44,7 +44,7 @@ func (p *CPUEntitlementPlugin) Run(cliConnection plugin.CliConnection, args []st
 	}
 
 	connection := consumer.New(dopplerEndpoint, &tls.Config{InsecureSkipVerify: true}, nil)
-	envelopes, errors := connection.FilteredFirehose("CpuEntitlementPlugin", authToken, consumer.Metrics)
+	envelopes, errors := connection.FilteredFirehose("CPUEntitlementPlugin2", authToken, consumer.Metrics)
 	defer connection.Close()
 
 	done := make(chan struct{})
@@ -57,7 +57,6 @@ func (p *CPUEntitlementPlugin) Run(cliConnection plugin.CliConnection, args []st
 	}()
 
 	appEnvelopes := make(chan *events.Envelope)
-	defer close(appEnvelopes)
 
 	go func() {
 		defer close(appEnvelopes)
@@ -81,7 +80,11 @@ func (p *CPUEntitlementPlugin) Run(cliConnection plugin.CliConnection, args []st
 	}()
 
 	output := make(chan float64, 1)
-	go cpumetric.Aggregate(metrics, output)
+	go func() {
+		defer close(output)
+		cpumetric.Aggregate(metrics, output)
+	}()
+
 	for metric := range output {
 		p.ui.Say("%.2f%%", metric*100)
 	}
