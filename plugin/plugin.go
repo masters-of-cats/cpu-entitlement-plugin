@@ -12,6 +12,7 @@ import (
 	"code.cloudfoundry.org/cli/plugin"
 	loggregator "code.cloudfoundry.org/go-loggregator"
 	"code.cloudfoundry.org/go-loggregator/rpc/loggregator_v2"
+	"github.com/masters-of-cats/cpu-entitlement-plugin/usagemetric"
 )
 
 type CPUEntitlementPlugin struct {
@@ -31,44 +32,27 @@ func New(name string) *CPUEntitlementPlugin {
 func (p *CPUEntitlementPlugin) Run(cli plugin.CliConnection, args []string) {
 	app, err := cli.GetApp(p.name)
 	if err != nil {
-		fmt.Println(p.name)
 		p.ui.Failed(err.Error())
 		os.Exit(1)
 	}
 
-	// dopplerEndpoint, err := cli.DopplerEndpoint()
-	// if err != nil {
-	// 	p.ui.Failed(err.Error())
-	// }
-
-	// url, err := url.Parse(dopplerEndpoint)
-	// if err != nil {
-	// 	p.ui.Failed(err.Error())
-	// }
-
 	token, err := cli.AccessToken()
 	if err != nil {
 		p.ui.Failed(err.Error())
+		os.Exit(1)
 	}
 
 	client := loggregator.NewRLPGatewayClient(
 		"http://log-stream.donaldduck.garden-dev.cf-app.com",
 		loggregator.WithRLPGatewayClientLogger(log.New(os.Stderr, "", log.LstdFlags)),
-		loggregator.WithRLPGatewayHTTPClient(&tokenAttacher{token: token}),
+		loggregator.WithRLPGatewayHTTPClient(authenticatedBy(token)),
 	)
 
-	stream := client.Stream(context.Background(), &loggregator_v2.EgressBatchRequest{
-		Selectors: []*loggregator_v2.Selector{
-			{
-				SourceId: app.Guid,
-				Message:  &loggregator_v2.Selector_Gauge{},
-			},
-		},
-	})
+	stream := client.Stream(context.Background(), streamRequest(app.Guid))
 
 	for {
 		for _, e := range stream() {
-			usageMetric, ok := NewUsageMetricFromGaugeMetric(e.GetGauge().GetMetrics())
+			usageMetric, ok := usagemetric.FromGaugeMetric(e.GetGauge().GetMetrics())
 			if !ok {
 				continue
 			}
@@ -78,45 +62,26 @@ func (p *CPUEntitlementPlugin) Run(cli plugin.CliConnection, args []string) {
 	}
 }
 
-type UsageMetric struct {
-	AbsoluteUsage       float64
-	AbsoluteEntitlement float64
-	ContainerAge        float64
+func streamRequest(sourceID string) *loggregator_v2.EgressBatchRequest {
+	return &loggregator_v2.EgressBatchRequest{
+		Selectors: []*loggregator_v2.Selector{
+			{
+				SourceId: sourceID,
+				Message:  &loggregator_v2.Selector_Gauge{},
+			},
+		},
+	}
 }
 
-func NewUsageMetricFromGaugeMetric(metric map[string]*loggregator_v2.GaugeValue) (UsageMetric, bool) {
-	absoluteUsage := metric["absolute_usage"]
-	absoluteEntitlement := metric["absolute_entitlement"]
-	containerAge := metric["container_age"]
-
-	if absoluteUsage == nil {
-		return UsageMetric{}, false
-	}
-
-	if absoluteEntitlement == nil {
-		return UsageMetric{}, false
-	}
-
-	if containerAge == nil {
-		return UsageMetric{}, false
-	}
-
-	return UsageMetric{
-		AbsoluteUsage:       absoluteUsage.Value,
-		AbsoluteEntitlement: absoluteEntitlement.Value,
-		ContainerAge:        containerAge.Value,
-	}, true
+func authenticatedBy(token string) *authClient {
+	return &authClient{token: token}
 }
 
-func (m UsageMetric) CPUUsage() float64 {
-	return m.AbsoluteUsage / m.AbsoluteEntitlement
-}
-
-type tokenAttacher struct {
+type authClient struct {
 	token string
 }
 
-func (a *tokenAttacher) Do(req *http.Request) (*http.Response, error) {
+func (a *authClient) Do(req *http.Request) (*http.Response, error) {
 	req.Header.Set("Authorization", a.token)
 	return http.DefaultClient.Do(req)
 }
