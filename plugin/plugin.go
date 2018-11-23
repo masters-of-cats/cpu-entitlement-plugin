@@ -1,36 +1,36 @@
 package plugin
 
 import (
-	"context"
-	"fmt"
-	"log"
-	"net/http"
+	"net/url"
 	"os"
+	"strings"
 
 	"code.cloudfoundry.org/cli/cf/terminal"
-	"code.cloudfoundry.org/cli/cf/trace"
 	"code.cloudfoundry.org/cli/plugin"
-	loggregator "code.cloudfoundry.org/go-loggregator"
-	"code.cloudfoundry.org/go-loggregator/rpc/loggregator_v2"
-	"github.com/masters-of-cats/cpu-entitlement-plugin/usagemetric"
+	"github.com/cloudfoundry/cpu-entitlement-plugin/logstreamer"
 )
 
 type CPUEntitlementPlugin struct {
-	name string
-	ui   terminal.UI
+	ui          terminal.UI
+	logStreamer logstreamer.LogStreamer
 }
 
-func New(name string) *CPUEntitlementPlugin {
-	traceLogger := trace.NewLogger(os.Stdout, true, os.Getenv("CF_TRACE"), "")
-
+func New(logStreamer logstreamer.LogStreamer, ui terminal.UI) *CPUEntitlementPlugin {
 	return &CPUEntitlementPlugin{
-		name: name,
-		ui:   terminal.NewUI(os.Stdin, os.Stdout, terminal.NewTeePrinter(os.Stdout), traceLogger),
+		ui:          ui,
+		logStreamer: logStreamer,
 	}
 }
 
 func (p *CPUEntitlementPlugin) Run(cli plugin.CliConnection, args []string) {
-	app, err := cli.GetApp(p.name)
+	if len(args) != 2 {
+		p.ui.Failed("Usage: `cf cpu-entitlement APP_NAME`")
+		os.Exit(1)
+	}
+
+	appName := args[1]
+
+	app, err := cli.GetApp(appName)
 	if err != nil {
 		p.ui.Failed(err.Error())
 		os.Exit(1)
@@ -42,46 +42,32 @@ func (p *CPUEntitlementPlugin) Run(cli plugin.CliConnection, args []string) {
 		os.Exit(1)
 	}
 
-	client := loggregator.NewRLPGatewayClient(
-		"http://log-stream.donaldduck.garden-dev.cf-app.com",
-		loggregator.WithRLPGatewayClientLogger(log.New(os.Stderr, "", log.LstdFlags)),
-		loggregator.WithRLPGatewayHTTPClient(authenticatedBy(token)),
-	)
+	apiURL, err := cli.ApiEndpoint()
+	if err != nil {
+		p.ui.Failed(err.Error())
+		os.Exit(1)
+	}
 
-	stream := client.Stream(context.Background(), streamRequest(app.Guid))
+	logStreamURL, err := buildLogStreamURL(apiURL)
+	if err != nil {
+		p.ui.Failed(err.Error())
+		os.Exit(1)
+	}
 
-	for {
-		for _, e := range stream() {
-			usageMetric, ok := usagemetric.FromGaugeMetric(e.GetGauge().GetMetrics())
-			if !ok {
-				continue
-			}
-
-			fmt.Printf("CPU usage for %s: %.2f%%\n", p.name, usageMetric.CPUUsage()*100)
-		}
+	usageMetricsStream := p.logStreamer.Stream(logStreamURL, token, app.Guid)
+	for usageMetric := range usageMetricsStream {
+		p.ui.Say("CPU usage for %s: %.2f%%\n", appName, usageMetric.CPUUsage()*100)
 	}
 }
 
-func streamRequest(sourceID string) *loggregator_v2.EgressBatchRequest {
-	return &loggregator_v2.EgressBatchRequest{
-		Selectors: []*loggregator_v2.Selector{
-			{
-				SourceId: sourceID,
-				Message:  &loggregator_v2.Selector_Gauge{},
-			},
-		},
+func buildLogStreamURL(apiURL string) (string, error) {
+	logStreamURL, err := url.Parse(apiURL)
+	if err != nil {
+		return "", err
 	}
-}
 
-func authenticatedBy(token string) *authClient {
-	return &authClient{token: token}
-}
+	logStreamURL.Scheme = "http"
+	logStreamURL.Host = strings.Replace(logStreamURL.Host, "api", "log-stream", 1)
 
-type authClient struct {
-	token string
-}
-
-func (a *authClient) Do(req *http.Request) (*http.Response, error) {
-	req.Header.Set("Authorization", a.token)
-	return http.DefaultClient.Do(req)
+	return logStreamURL.String(), nil
 }

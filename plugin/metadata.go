@@ -4,7 +4,7 @@ import "code.cloudfoundry.org/cli/plugin"
 
 func (p *CPUEntitlementPlugin) GetMetadata() plugin.PluginMetadata {
 	return plugin.PluginMetadata{
-		Name: "CPUEntitlementPlugin2",
+		Name: "CPUEntitlementPlugin",
 		Version: plugin.VersionType{
 			Major: 0,
 			Minor: 0,
@@ -12,8 +12,8 @@ func (p *CPUEntitlementPlugin) GetMetadata() plugin.PluginMetadata {
 		},
 		Commands: []plugin.Command{
 			{
-				Name:     "cpu-entitlement2",
-				Alias:    "cpu2",
+				Name:     "cpu-entitlement",
+				Alias:    "cpu",
 				HelpText: "See cpu entitlement per app",
 				UsageDetails: plugin.Usage{
 					Usage: "cf cpu-entitlement APP_NAME",
