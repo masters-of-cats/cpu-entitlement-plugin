@@ -12,36 +12,48 @@ import (
 )
 
 type LogStreamer struct {
+	client LoggregatorClient
 }
 
-func New() LogStreamer {
-	return LogStreamer{}
+//go:generate counterfeiter . LoggregatorClient
+type LoggregatorClient interface {
+	Stream(ctx context.Context, req *loggregator_v2.EgressBatchRequest) loggregator.EnvelopeStream
 }
 
-func (s LogStreamer) Stream(logStreamURL, token, appGuid string) chan usagemetric.UsageMetric {
-	client := loggregator.NewRLPGatewayClient(
-		logStreamURL,
-		loggregator.WithRLPGatewayClientLogger(log.New(os.Stderr, "", log.LstdFlags)),
-		loggregator.WithRLPGatewayHTTPClient(authenticatedBy(token)),
-	)
+func New(logStreamURL, token string) LogStreamer {
+	return LogStreamer{
+		client: loggregator.NewRLPGatewayClient(
+			logStreamURL,
+			loggregator.WithRLPGatewayClientLogger(log.New(os.Stderr, "", log.LstdFlags)),
+			loggregator.WithRLPGatewayHTTPClient(authenticatedBy(token)),
+		),
+	}
+}
 
-	stream := client.Stream(context.Background(), streamRequest(appGuid))
+func NewWithLoggregatorClient(client LoggregatorClient) LogStreamer {
+	return LogStreamer{client: client}
+}
+
+func (s LogStreamer) Stream(appGuid string) chan usagemetric.UsageMetric {
+	stream := s.client.Stream(context.Background(), streamRequest(appGuid))
 
 	var usageMetricsStream = make(chan usagemetric.UsageMetric)
-	go func() {
-		for {
-			for _, envelope := range stream() {
-				usageMetric, ok := usagemetric.FromGaugeMetric(envelope.GetGauge().GetMetrics())
-				if !ok {
-					continue
-				}
-
-				usageMetricsStream <- usageMetric
-			}
-		}
-	}()
+	go streamToUsageChan(stream, usageMetricsStream)
 
 	return usageMetricsStream
+}
+
+func streamToUsageChan(stream loggregator.EnvelopeStream, usageMetricsStream chan<- usagemetric.UsageMetric) {
+	for {
+		for _, envelope := range stream() {
+			usageMetric, ok := usagemetric.FromGaugeMetric(envelope.GetGauge().GetMetrics())
+			if !ok {
+				continue
+			}
+
+			usageMetricsStream <- usageMetric
+		}
+	}
 }
 
 func streamRequest(sourceID string) *loggregator_v2.EgressBatchRequest {

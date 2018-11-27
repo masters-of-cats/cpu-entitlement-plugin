@@ -6,25 +6,23 @@ import (
 	"strings"
 
 	"code.cloudfoundry.org/cli/cf/terminal"
+	"code.cloudfoundry.org/cli/cf/trace"
 	"code.cloudfoundry.org/cli/plugin"
 	"github.com/cloudfoundry/cpu-entitlement-plugin/logstreamer"
 )
 
-type CPUEntitlementPlugin struct {
-	ui          terminal.UI
-	logStreamer logstreamer.LogStreamer
-}
+type CPUEntitlementPlugin struct{}
 
-func New(logStreamer logstreamer.LogStreamer, ui terminal.UI) *CPUEntitlementPlugin {
-	return &CPUEntitlementPlugin{
-		ui:          ui,
-		logStreamer: logStreamer,
-	}
+func New() *CPUEntitlementPlugin {
+	return &CPUEntitlementPlugin{}
 }
 
 func (p *CPUEntitlementPlugin) Run(cli plugin.CliConnection, args []string) {
+	traceLogger := trace.NewLogger(os.Stdout, true, os.Getenv("CF_TRACE"), "")
+	ui := terminal.NewUI(os.Stdin, os.Stdout, terminal.NewTeePrinter(os.Stdout), traceLogger)
+
 	if len(args) != 2 {
-		p.ui.Failed("Usage: `cf cpu-entitlement APP_NAME`")
+		ui.Failed("Usage: `cf cpu-entitlement APP_NAME`")
 		os.Exit(1)
 	}
 
@@ -32,31 +30,33 @@ func (p *CPUEntitlementPlugin) Run(cli plugin.CliConnection, args []string) {
 
 	app, err := cli.GetApp(appName)
 	if err != nil {
-		p.ui.Failed(err.Error())
+		ui.Failed(err.Error())
 		os.Exit(1)
 	}
 
 	token, err := cli.AccessToken()
 	if err != nil {
-		p.ui.Failed(err.Error())
+		ui.Failed(err.Error())
 		os.Exit(1)
 	}
 
 	apiURL, err := cli.ApiEndpoint()
 	if err != nil {
-		p.ui.Failed(err.Error())
+		ui.Failed(err.Error())
 		os.Exit(1)
 	}
 
 	logStreamURL, err := buildLogStreamURL(apiURL)
 	if err != nil {
-		p.ui.Failed(err.Error())
+		ui.Failed(err.Error())
 		os.Exit(1)
 	}
 
-	usageMetricsStream := p.logStreamer.Stream(logStreamURL, token, app.Guid)
+	logStreamer := logstreamer.New(logStreamURL, token)
+
+	usageMetricsStream := logStreamer.Stream(app.Guid)
 	for usageMetric := range usageMetricsStream {
-		p.ui.Say("CPU usage for %s: %.2f%%\n", appName, usageMetric.CPUUsage()*100)
+		ui.Say("CPU usage for %s: %.2f%%", appName, usageMetric.CPUUsage()*100)
 	}
 }
 
