@@ -1,9 +1,10 @@
 package plugin
 
 import (
+	"errors"
 	"net/url"
 	"os"
-	"strings"
+	"regexp"
 
 	"code.cloudfoundry.org/cli/cf/terminal"
 	"code.cloudfoundry.org/cli/cf/trace"
@@ -40,13 +41,13 @@ func (p *CPUEntitlementPlugin) Run(cli plugin.CliConnection, args []string) {
 		os.Exit(1)
 	}
 
-	apiURL, err := cli.ApiEndpoint()
+	dopplerURL, err := cli.DopplerEndpoint()
 	if err != nil {
 		ui.Failed(err.Error())
 		os.Exit(1)
 	}
 
-	logStreamURL, err := buildLogStreamURL(apiURL)
+	logStreamURL, err := buildLogStreamURL(dopplerURL)
 	if err != nil {
 		ui.Failed(err.Error())
 		os.Exit(1)
@@ -60,14 +61,21 @@ func (p *CPUEntitlementPlugin) Run(cli plugin.CliConnection, args []string) {
 	}
 }
 
-func buildLogStreamURL(apiURL string) (string, error) {
-	logStreamURL, err := url.Parse(apiURL)
+func buildLogStreamURL(dopplerURL string) (string, error) {
+	logStreamURL, err := url.Parse(dopplerURL)
 	if err != nil {
 		return "", err
 	}
 
+	regex, err := regexp.Compile("doppler(\\S+):443")
+	match := regex.FindStringSubmatch(logStreamURL.Host)
+
+	if len(match) != 2 {
+		return "", errors.New("Unable to parse log-stream endpoint from doppler URL")
+	}
+
 	logStreamURL.Scheme = "http"
-	logStreamURL.Host = strings.Replace(logStreamURL.Host, "api", "log-stream", 1)
+	logStreamURL.Host = "log-stream" + match[1]
 
 	return logStreamURL.String(), nil
 }
